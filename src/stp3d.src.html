@@ -1,0 +1,540 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>屏蔽双绞线行波 3D</title>
+<style>
+:root{--bg:#0d1117;--fg:#e6edf3;--muted:#8b949e;--panel:rgba(22,27,34,.82);--line:#30363d}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:-apple-system,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;overflow:hidden}
+#c{position:fixed;inset:0;display:block;width:100%;height:100%}
+.title{position:fixed;left:28px;top:22px;max-width:60%}
+.title h1{margin:0;font-size:26px;font-weight:600;letter-spacing:.5px}
+.title p{margin:7px 0 0;font-size:15px;line-height:1.55;color:var(--muted)}
+.legend{position:fixed;right:24px;top:22px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 16px;font-size:14px;line-height:1.95;max-width:330px}
+.legend i{display:inline-block;width:22px;height:5px;border-radius:3px;margin-right:9px;vertical-align:middle}
+.legend .note{color:var(--muted);font-size:12.5px;line-height:1.5;margin-top:4px;border-top:1px solid var(--line);padding-top:6px}
+.readout{position:fixed;left:28px;bottom:24px;display:flex;gap:12px;flex-wrap:wrap}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 14px;min-width:118px}
+.card .k{font-size:12px;color:var(--muted)}
+.card .v{font-size:20px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:2px}
+.foot{position:fixed;right:24px;bottom:84px;font-size:12px;color:var(--muted);text-align:right;line-height:1.6}
+.foot a{color:#79c0ff;text-decoration:none} .foot a:hover{text-decoration:underline}
+.ctrl{position:fixed;right:24px;bottom:24px;display:flex;gap:10px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:14px}
+.ctrl button{background:#21262d;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:5px 12px;font-size:14px;cursor:pointer}
+.ctrl button.on{background:#1f6feb;border-color:#388bfd}
+.ctrl input[type=range]{width:170px}
+.ctrl label{white-space:nowrap;color:var(--muted)}
+.seg{display:flex}.seg button:first-child{border-radius:6px 0 0 6px}.seg button:last-child{border-radius:0 6px 6px 0;margin-left:-1px}
+.modal{position:fixed;inset:0;background:rgba(1,4,9,.72);display:flex;align-items:center;justify-content:center;z-index:20}
+.modal[hidden]{display:none}
+.modal .box{background:#161b22;border:1px solid var(--line);border-radius:14px;padding:18px 18px 14px;text-align:center;max-width:calc(100vw - 32px)}
+.modal img{display:block;width:300px;max-width:100%;height:auto;border-radius:8px}
+.modal p{margin:12px 0 10px;font-size:14px;color:var(--muted)}
+.modal button{background:#21262d;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:5px 18px;font-size:14px;cursor:pointer}
+body.rec .ctrl, body.rec .gh, body.rec .modal{display:none}
+body.rec .foot{bottom:24px}
+@media (max-width:760px){
+  .title{left:16px;top:14px;max-width:calc(100% - 32px)} .title h1{font-size:19px} .title p{font-size:12px}
+  .legend{display:none} .readout{left:16px;bottom:118px} .card{min-width:90px;padding:6px 10px} .card .v{font-size:16px}
+  .ctrl{left:16px;right:16px;bottom:16px;flex-wrap:wrap} .ctrl input[type=range]{width:auto;flex:1} .foot{display:none}
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="title">
+  <h1 id="t-h"></h1>
+  <p id="t-p"></p>
+</div>
+
+<div class="legend">
+  <div><i style="background:#8f86ff"></i>E 电场线</div>
+  <div><i style="background:#34d399"></i>H 磁场线（与 E 处处垂直）</div>
+  <div><i style="background:#ff7a45"></i>S 能量流（沿轴，长度 ∝ E²）</div>
+  <div><i style="background:#ffd166"></i>导线电流（D+ / D−）</div>
+  <div><i style="background:#5cc8ff"></i><span id="lg-shield"></span></div>
+  <div><i style="background:#c9d1d9"></i>V(x,t) 沿线电压瞬时分布</div>
+  <div><i style="background:#f0f6fc;width:9px;height:9px;border-radius:50%;margin:0 15px 0 6px"></i>电子：原地来回振荡，净位移 ≈ 0</div>
+  <div class="note">E、H：线的粗细 = 场强（强处封顶、弱处保底）<br>场线按"导线 + 接地圆筒屏蔽"的镜像解数值描出<br>右端面 = A—A′ 式横截面　·　电子振幅极度放大</div>
+</div>
+
+<div class="readout">
+  <div class="card"><div class="k">时刻相位 ωt</div><div class="v" id="r-ph">0°</div></div>
+  <div class="card"><div class="k" id="r-vk"></div><div class="v" id="r-v">+1.00</div></div>
+  <div class="card"><div class="k" id="r-ik"></div><div class="v" id="r-i"></div></div>
+  <div class="card"><div class="k">A 处能量流 S</div><div class="v" id="r-s" style="color:#ff7a45">→ 1.00</div></div>
+</div>
+
+<div class="foot">切去四分之一仅为便于观察；实际场充满整圈　·　λ 与绞距均已缩放：同屏 2 个波长、每个波长 4 个绞距<span class="gh"><br>同系列：<a href="https://wangbrightly.github.io/coax-traveling-wave-3d/" target="_blank" rel="noopener">同轴电缆版</a>　·　<a href="https://wangbrightly.github.io/shielded-pair-traveling-wave-3d/" target="_blank" rel="noopener">屏蔽平行线版</a>　·　<a href="https://github.com/wangbrightly/stp-traveling-wave-3d" target="_blank" rel="noopener">源码</a></span></div>
+
+<div class="ctrl">
+  <div class="seg"><button id="m-dm">差模</button><button id="m-cm">共模</button></div>
+  <button id="play">⏸ 暂停</button>
+  <label for="ph">相位</label><input type="range" id="ph" min="0" max="359" value="0">
+  <label><input type="checkbox" id="orbit" checked> 自动环绕</label>
+  <button id="reward">☕ 赞赏</button>
+</div>
+
+<div id="rw" class="modal" hidden>
+  <div class="box" role="dialog" aria-label="微信赞赏码">
+    <img src="__REWARD_DATAURI__" alt="微信赞赏码">
+    <p>微信扫码赞赏</p>
+    <button id="rw-close">关闭</button>
+  </div>
+</div>
+
+<script>/*__THREE__*/</script>
+<script>/*__ORBIT__*/</script>
+<script>
+(function(){
+  'use strict';
+  THREE.ColorManagement.legacyMode = false;
+
+  /* ---------- 几何与波参数 ---------- */
+  var L = 14, X0 = -L/2, X1 = L/2;
+  var R = 1.6, rSh = 1.68, rJk = 1.95;             // 屏蔽内壁 / 屏蔽外 / 护套外
+  var D = 0.55, RW = 0.16, RI = 0.27;              // 导线中心离轴距离 / 导体半径 / 绝缘外半径
+  var LAMBDA = 7, PERIOD = 2, PITCH = LAMBDA/4;     // 同屏 2 个波长；每个波长 4 个绞距
+  var k = 2*Math.PI/LAMBDA, w = 2*Math.PI/PERIOD;
+  function V(x, t){ return Math.cos(w*t - k*x); }
+  function TH(x){ return 2*Math.PI*x/PITCH; }       // 线对在 x 处的取向角
+  // 坐标：轴向 = x；点 (x, r·cosφ, r·sinφ)。φ∈[0°,90°]（上前方）切掉
+  var PH0 = Math.PI/2, PH1 = 2*Math.PI;
+  function P(x, r, ph){ return new THREE.Vector3(x, r*Math.cos(ph), r*Math.sin(ph)); }
+  // 线对局部坐标 (u,v)：u 沿 D−→D+ 连线，v 与之垂直；映射到 3D
+  function L3(x, th, u, v, out){ var c = Math.cos(th), s = Math.sin(th); return (out || new THREE.Vector3()).set(x, u*c - v*s, u*s + v*c); }
+
+  var hash = location.hash;
+  var REC = hash.indexOf('#record') === 0;
+  var mode = (hash === '#cm' || hash === '#record-cm') ? 'cm' : 'dm';
+  if (REC) document.body.classList.add('rec');
+
+  /* ---------- 渲染器 / 场景 / 相机 ---------- */
+  var canvas = document.getElementById('c');
+  var renderer = new THREE.WebGLRenderer({canvas: canvas, antialias: true, preserveDrawingBuffer: REC});
+  renderer.setPixelRatio(REC ? 1 : Math.min(window.devicePixelRatio, 2));
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  var scene = new THREE.Scene(); scene.background = new THREE.Color(0x0d1117);
+  var camera = new THREE.PerspectiveCamera(36, 1, 0.1, 200);
+  var TARGET = new THREE.Vector3(1.9, 0.3, 0);
+  var CAM_R = 16.0, CAM_EL = 0.36, CAM_AZ = 0.80;   // 方位比同轴版更偏右，便于看清端面截面
+  function camAt(az, el){
+    camera.position.set(TARGET.x + CAM_R*Math.cos(el)*Math.sin(az), TARGET.y + CAM_R*Math.sin(el), TARGET.z + CAM_R*Math.cos(el)*Math.cos(az));
+    camera.lookAt(TARGET);
+  }
+  camAt(CAM_AZ, CAM_EL);
+  var controls = null;
+  if (!REC){ controls = new THREE.OrbitControls(camera, canvas); controls.target.copy(TARGET); controls.enableDamping = true; controls.update(); }
+  scene.add(new THREE.HemisphereLight(0xdfe8ff, 0x2a3140, 1.6));
+  var key = new THREE.DirectionalLight(0xffffff, 1.8); key.position.set(6, 9, 7); scene.add(key);
+  var rim = new THREE.DirectionalLight(0x9fb4ff, 0.7); rim.position.set(-8, 2, -6); scene.add(rim);
+
+  /* ---------- 网格工具 ---------- */
+  function grid(nu, nv, f){
+    var pos = [], uv = [], idx = [], i, j;
+    for (j = 0; j <= nv; j++) for (i = 0; i <= nu; i++){ var p = f(i/nu, j/nv); pos.push(p.x, p.y, p.z); uv.push(i/nu, j/nv); }
+    for (j = 0; j < nv; j++) for (i = 0; i < nu; i++){ var A = j*(nu+1)+i, B = A+1, C = A+nu+1, E = C+1; idx.push(A, C, B, B, C, E); }
+    var g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    g.setIndex(idx); g.computeVertexNormals(); return g;
+  }
+  function shell(Rr, x0, x1, p0, p1){ return grid(120, 1, function(u, v){ return P(x0 + (x1-x0)*v, Rr, p0 + (p1-p0)*u); }); }
+  function ann(r0, r1, x, p0, p1){ return grid(80, 1, function(u, v){ return P(x, r0 + (r1-r0)*v, p0 + (p1-p0)*u); }); }
+  function cut(r0, r1, ph, x0, x1){ return grid(1, 1, function(u, v){ return P(x0 + (x1-x0)*u, r0 + (r1-r0)*v, ph); }); }
+  function add(g, m){ var o = new THREE.Mesh(g, m); scene.add(o); return o; }
+
+  /* ---------- 屏蔽层 / 护套（与同轴版一致） ---------- */
+  var DS = THREE.DoubleSide;
+  var mJack = new THREE.MeshStandardMaterial({color: 0x1b222c, roughness: 0.9, side: DS});
+  var mJackCut = new THREE.MeshStandardMaterial({color: 0x313b48, roughness: 0.9, side: DS});
+  var mShCut = new THREE.MeshStandardMaterial({color: 0xa7adb6, metalness: 0.6, roughness: 0.4, side: DS});
+  var bc = document.createElement('canvas'); bc.width = bc.height = 128;
+  var bx = bc.getContext('2d'); bx.fillStyle = '#6f7680'; bx.fillRect(0, 0, 128, 128);
+  for (var s0 = -128; s0 < 256; s0 += 16){
+    bx.strokeStyle = '#c3c8cf'; bx.lineWidth = 6; bx.beginPath(); bx.moveTo(s0, 0); bx.lineTo(s0+128, 128); bx.stroke();
+    bx.strokeStyle = '#9aa1ab'; bx.lineWidth = 6; bx.beginPath(); bx.moveTo(s0+128, 0); bx.lineTo(s0, 128); bx.stroke();
+  }
+  var braid = new THREE.CanvasTexture(bc); braid.wrapS = braid.wrapT = THREE.RepeatWrapping; braid.repeat.set(10, 20);
+  braid.encoding = THREE.sRGBEncoding; braid.anisotropy = 8;
+  var mShield = new THREE.MeshStandardMaterial({map: braid, metalness: 0.5, roughness: 0.45, side: DS});
+  add(shell(R + 0.004, X0, X1, PH0, PH1), mShield); add(shell(rSh, X0, X1, PH0, PH1), mShield);
+  add(cut(R, rSh, 0, X0, X1), mShCut); add(cut(R, rSh, PH0, X0, X1), mShCut);
+  add(ann(R, rSh, X1, PH0, PH1), mShCut); add(ann(R, rSh, X0, PH0, PH1), mShCut);
+  add(shell(rJk, X0, X1, PH0, PH1), mJack);
+  add(cut(rSh, rJk, 0, X0, X1), mJackCut); add(cut(rSh, rJk, PH0, X0, X1), mJackCut);
+  add(ann(rSh, rJk, X1, PH0, PH1), mJackCut); add(ann(rSh, rJk, X0, PH0, PH1), mJackCut);
+
+  /* ---------- 双绞线（真实双螺旋） ---------- */
+  class Helix extends THREE.Curve {
+    constructor(phase){ super(); this.phase = phase; }
+    getPoint(t, target){ var x = X0 + L*t, th = TH(x) + this.phase; return (target || new THREE.Vector3()).set(x, D*Math.cos(th), D*Math.sin(th)); }
+  }
+  var mCu = new THREE.MeshStandardMaterial({color: 0xd08a5a, metalness: 0.55, roughness: 0.32});
+  var mInsP = new THREE.MeshStandardMaterial({color: 0x3d7fd6, transparent: true, opacity: 0.5, depthWrite: false, roughness: 0.3});
+  var mInsM = new THREE.MeshStandardMaterial({color: 0xe0663f, transparent: true, opacity: 0.5, depthWrite: false, roughness: 0.3});
+  [[0, mInsP], [Math.PI, mInsM]].forEach(function(pr){
+    var h = new Helix(pr[0]);
+    add(new THREE.TubeGeometry(h, 900, RW, 12, false), mCu);
+    add(new THREE.TubeGeometry(h, 900, RI, 16, false), pr[1]);
+    [X0, X1].forEach(function(xe){
+      var c = h.getPoint((xe - X0)/L);
+      var cu = new THREE.Mesh(new THREE.CircleGeometry(RW, 24).rotateY(xe > 0 ? Math.PI/2 : -Math.PI/2), mCu); cu.position.copy(c); cu.position.x += (xe > 0 ? 0.009 : -0.001); scene.add(cu);
+      var ins = new THREE.Mesh(new THREE.RingGeometry(RW, RI, 32).rotateY(xe > 0 ? Math.PI/2 : -Math.PI/2), pr[1]); ins.position.copy(c); ins.position.x += (xe > 0 ? 0.008 : -0.001); scene.add(ins);
+    });
+  });
+  // 端面底板：让右端截面上的场图更醒目
+  var screen = new THREE.Mesh(new THREE.CircleGeometry(R, 96).rotateY(Math.PI/2), new THREE.MeshBasicMaterial({color: 0x0d1117, transparent: true, opacity: 0.62, depthWrite: false}));
+  screen.position.x = X1 + 0.004; scene.add(screen);
+
+  /* ---------- 二维场：导线线电荷 + 接地圆筒屏蔽的镜像解 ---------- */
+  // 线电荷 q 位于 a（离轴 |a|<R），镜像 −q 位于 R²/|a|²·a，保证圆筒为等势面（二维精确解）
+  function makeField(m){
+    var im = R*R/D;
+    var ch = m === 'dm' ? [[D, 1], [im, -1], [-D, -1], [-im, 1]] : [[D, 1], [im, -1], [-D, 1], [-im, -1]];
+    return function(u, v, out){
+      var eu = 0, ev = 0;
+      for (var i = 0; i < 4; i++){ var du = u - ch[i][0], r2 = du*du + v*v; eu += ch[i][1]*du/r2; ev += ch[i][1]*v/r2; }
+      out[0] = eu; out[1] = ev; return out;
+    };
+  }
+  var _e = [0, 0], _e2 = [0, 0];
+  // 沿场方向描线（RK2）。dirFn 给出单位方向；stop 判断终止
+  function trace(F, u, v, rotate, stop, maxN){
+    var h = 0.008, pts = [[u, v]], p = [u, v], n;
+    for (n = 0; n < maxN; n++){
+      F(p[0], p[1], _e); var a = rotate ? [-_e[1], _e[0]] : [_e[0], _e[1]], m = Math.hypot(a[0], a[1]); if (m < 1e-9) break;
+      var mu = p[0] + 0.5*h*a[0]/m, mv = p[1] + 0.5*h*a[1]/m;
+      F(mu, mv, _e2); var b = rotate ? [-_e2[1], _e2[0]] : [_e2[0], _e2[1]], mb = Math.hypot(b[0], b[1]); if (mb < 1e-9) break;
+      p = [p[0] + h*b[0]/mb, p[1] + h*b[1]/mb];
+      var st = stop(p, n);
+      if (st === 'clip'){ var r = Math.hypot(p[0], p[1]); pts.push([p[0]*R/r, p[1]*R/r]); return {pts: pts, end: 'shield'}; }
+      pts.push([p[0], p[1]]);
+      if (st) return {pts: pts, end: st};
+    }
+    return {pts: pts, end: 'open'};
+  }
+  // 从 D+ 表面按通量（面电荷密度）等分出发 → 线的疏密 ∝ 场强
+  function eLines(F, N){
+    var M = 720, cum = [0], i;
+    for (i = 0; i < M; i++){
+      var a = 2*Math.PI*(i + 0.5)/M; F(D + RW*Math.cos(a), RW*Math.sin(a), _e);
+      cum.push(cum[i] + Math.max(0, _e[0]*Math.cos(a) + _e[1]*Math.sin(a)));
+    }
+    var out = [];
+    for (var q = 0; q < N; q++){
+      var target = cum[M]*(q + 0.5)/N, j = 0; while (cum[j+1] < target) j++;
+      var a0 = 2*Math.PI*(j + (target - cum[j])/(cum[j+1] - cum[j] || 1))/M;
+      var res = trace(F, D + RW*Math.cos(a0), RW*Math.sin(a0), false, function(p){
+        if (Math.hypot(p[0] + D, p[1]) < RW) return 'wire';
+        if (Math.hypot(p[0], p[1]) >= R) return 'clip';
+        return false;
+      }, 1200);
+      out.push(res.pts);
+      if (res.end === 'shield') out.push(res.pts.map(function(p){ return [-p[0], -p[1]]; }));   // 点对称：屏蔽层 → D− 或 D− → 屏蔽层
+    }
+    return out;
+  }
+  // H 线 = 电位等高线（理想 TEM：H ∥ x̂ × E）；从给定点出发绕行一圈
+  function hLoops(F, starts){
+    var out = [];
+    starts.forEach(function(s){
+      var res = trace(F, s[0], s[1], true, function(p, n){ return n > 60 && Math.hypot(p[0] - s[0], p[1] - s[1]) < 0.012 ? 'closed' : (Math.hypot(p[0], p[1]) >= R ? 'clip' : false); }, 4000);
+      if (res.end !== 'closed') return;
+      res.pts.push(res.pts[0]);
+      var encl = res.pts.some(function(p){ return p[0] < 0; }) && res.pts.some(function(p){ return p[0] > 0; });
+      out.push(res.pts);
+      if (!encl) out.push(res.pts.map(function(p){ return [-p[0], -p[1]]; }));
+    });
+    return out;
+  }
+  function decimate(pts, step){ var o = []; for (var i = 0; i < pts.length; i += step) o.push(pts[i]); if (o[o.length-1] !== pts[pts.length-1]) o.push(pts[pts.length-1]); return o; }
+
+  /* ---------- 粗细可随时间缩放的管线（着色器里按 aW·uThick 缩放半径） ---------- */
+  function fieldMat(){
+    var m = new THREE.MeshStandardMaterial({color: 0xffffff, roughness: 0.5, metalness: 0.05});
+    m.userData.uThick = {value: 0};
+    m.onBeforeCompile = function(sh){
+      sh.uniforms.uThick = m.userData.uThick;
+      sh.vertexShader = 'attribute vec3 aCenter;\nattribute float aW;\nuniform float uThick;\n' +
+        sh.vertexShader.replace('#include <begin_vertex>', 'vec3 transformed = aCenter + (position - aCenter) * aW * uThick;');
+    };
+    return m;
+  }
+  var XAX = new THREE.Vector3(1, 0, 0);
+  function tubes(x, th, lines, F, Eref){
+    var pos = [], nor = [], cen = [], aw = [], idx = [], RS = 6, base = 0, c = new THREE.Vector3(), c2 = new THREE.Vector3(), T = new THREE.Vector3(), Nn = new THREE.Vector3(), o = new THREE.Vector3();
+    lines.forEach(function(pts){
+      for (var i = 0; i < pts.length; i++){
+        L3(x, th, pts[i][0], pts[i][1], c);
+        var ia = Math.max(0, i - 1), ib = Math.min(pts.length - 1, i + 1);
+        L3(x, th, pts[ib][0], pts[ib][1], T); L3(x, th, pts[ia][0], pts[ia][1], c2); T.sub(c2).normalize();
+        Nn.crossVectors(T, XAX).normalize();
+        F(pts[i][0], pts[i][1], _e); var wv = Math.min(1, Math.max(0.2, Math.hypot(_e[0], _e[1])/Eref));
+        for (var r = 0; r < RS; r++){
+          var a = 2*Math.PI*r/RS; o.copy(XAX).multiplyScalar(Math.cos(a)).addScaledVector(Nn, Math.sin(a));
+          pos.push(c.x + o.x, c.y + o.y, c.z + o.z); nor.push(o.x, o.y, o.z); cen.push(c.x, c.y, c.z); aw.push(wv);
+        }
+        if (i > 0) for (r = 0; r < RS; r++){
+          var A = base + (i-1)*RS + r, B = base + (i-1)*RS + (r+1)%RS, C2 = base + i*RS + r, E2 = base + i*RS + (r+1)%RS;
+          idx.push(A, C2, B, B, C2, E2);
+        }
+      }
+      base += pts.length*RS;
+    });
+    var g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+    g.setAttribute('aCenter', new THREE.Float32BufferAttribute(cen, 3)); g.setAttribute('aW', new THREE.Float32BufferAttribute(aw, 1));
+    g.setIndex(idx); return g;
+  }
+
+  /* ---------- 实例化箭头（与同轴版一致） ---------- */
+  var UP = new THREE.Vector3(0, 1, 0), _q = new THREE.Quaternion(), _m = new THREE.Matrix4(), _s = new THREE.Vector3(), _p = new THREE.Vector3(), _c = new THREE.Color();
+  var gShaft = new THREE.CylinderGeometry(1, 1, 1, 10); gShaft.translate(0, 0.5, 0);
+  var gHead = new THREE.ConeGeometry(1, 1, 14); gHead.translate(0, 0.5, 0);
+  function ArrowSet(n, parent){
+    var mat = new THREE.MeshStandardMaterial({color: 0xffffff, roughness: 0.45, metalness: 0.05});
+    this.shaft = new THREE.InstancedMesh(gShaft, mat, n); this.head = new THREE.InstancedMesh(gHead, mat, n);
+    this.shaft.frustumCulled = this.head.frustumCulled = false; this.n = n;
+    (parent || scene).add(this.shaft); (parent || scene).add(this.head);
+  }
+  ArrowSet.prototype.hide = function(i){ _m.makeScale(0, 0, 0); this.shaft.setMatrixAt(i, _m); this.head.setMatrixAt(i, _m); };
+  ArrowSet.prototype.set = function(i, A, d, len, th, col){
+    if (len < 1e-3 || th < 1e-4){ this.hide(i); return; }
+    var hl = Math.min(len*0.42, th*6);
+    _q.setFromUnitVectors(UP, d);
+    _s.set(th, Math.max(len - hl, 1e-4), th); _m.compose(A, _q, _s); this.shaft.setMatrixAt(i, _m);
+    _p.copy(A).addScaledVector(d, len - hl); _s.set(th*2.5, hl, th*2.5); _m.compose(_p, _q, _s); this.head.setMatrixAt(i, _m);
+    this.shaft.setColorAt(i, col); this.head.setColorAt(i, col);
+  };
+  ArrowSet.prototype.done = function(){
+    this.shaft.instanceMatrix.needsUpdate = this.head.instanceMatrix.needsUpdate = true;
+    if (this.shaft.instanceColor){ this.shaft.instanceColor.needsUpdate = this.head.instanceColor.needsUpdate = true; }
+  };
+  var BG = new THREE.Color(0x1a2029);
+  var C_E = new THREE.Color(0x8f86ff), C_H = new THREE.Color(0x34d399), C_S = new THREE.Color(0xff7a45), C_I = new THREE.Color(0xffd166), C_K = new THREE.Color(0x5cc8ff);
+  function fade(col, amt){ return _c.copy(BG).lerp(col, Math.min(1, 0.25 + 0.75*amt)); }
+
+  /* ---------- 采样位置 ---------- */
+  var XS = []; for (var xx = X0 + LAMBDA/16; xx < X1; xx += LAMBDA/8) XS.push(+xx.toFixed(4));   // E 线、S
+  var XH = XS.slice(0, -1).map(function(v){ return v + LAMBDA/16; });                         // H 线、电流
+  var XEND = X1 + 0.012;
+  var E_BASE = 0.03, H_BASE = 0.022, MIN = 0.06;
+
+  /* ---------- 每种模式的场图对象 ---------- */
+  function buildMode(m){
+    var F = makeField(m), grp = new THREE.Group(); scene.add(grp);
+    var eL = eLines(F, m === 'dm' ? 5 : 4).map(function(p){ return decimate(p, 3); });
+    var eEnd = eLines(F, m === 'dm' ? 14 : 10).map(function(p){ return decimate(p, 3); });
+    var hStarts = m === 'dm' ? [[D - RI - 0.04, 0], [D - RI - 0.14, 0], [D - RI - 0.25, 0]] : [[D + RI + 0.05, 0], [D + RI + 0.25, 0], [D + RI + 0.5, 0]];
+    var hL = hLoops(F, hStarts.slice(0, 1)).map(function(p){ return decimate(p, 3); });
+    var hEnd = hLoops(F, hStarts).map(function(p){ return decimate(p, 3); });
+    // 场强参考：沿线 E 线各点 |E| 的 55 百分位
+    var mags = []; eL.forEach(function(pts){ pts.forEach(function(p){ F(p[0], p[1], _e); mags.push(Math.hypot(_e[0], _e[1])); }); });
+    mags.sort(function(a, b){ return a - b; }); var Eref = mags[Math.floor(mags.length*0.55)];
+    var md = {F: F, grp: grp, Eref: Eref, slices: [], eHeads: [], hHeads: []};
+    function slice(x, lines, isE){
+      var mat = fieldMat(), mesh = new THREE.Mesh(tubes(x, TH(x), lines, F, Eref), mat); mesh.frustumCulled = false; grp.add(mesh);
+      md.slices.push({x: x, mesh: mat, obj: mesh, isE: isE, end: x > X1});
+      // 箭头：E 线取弧长中点，H 环取 1/4 与 3/4 处
+      lines.forEach(function(pts){
+        var fr = isE ? [0.5] : [0.25, 0.75];
+        fr.forEach(function(f){
+          var i = Math.max(1, Math.min(pts.length - 2, Math.floor(f*(pts.length - 1)))), p = pts[i];
+          F(p[0], p[1], _e); var du = isE ? _e[0] : -_e[1], dv = isE ? _e[1] : _e[0], mm = Math.hypot(du, dv);
+          var dir = L3(0, TH(x), du/mm, dv/mm); dir.x = 0; dir.normalize();
+          (isE ? md.eHeads : md.hHeads).push({x: x, pos: L3(x, TH(x), p[0], p[1]), dir: dir, w: Math.min(1, Math.max(0.35, mm/Eref))*(x > X1 ? 1.4 : 1)});
+        });
+      });
+    }
+    XS.forEach(function(x){ slice(x, eL, true); });
+    XH.forEach(function(x){ slice(x, hL, false); });
+    slice(XEND, eEnd, true); slice(XEND + 0.004, hEnd, false);
+    md.eHeadSet = new THREE.InstancedMesh(gHead, new THREE.MeshStandardMaterial({color: 0xffffff, roughness: 0.45}), md.eHeads.length);
+    md.hHeadSet = new THREE.InstancedMesh(gHead, new THREE.MeshStandardMaterial({color: 0xffffff, roughness: 0.45}), md.hHeads.length);
+    md.eHeadSet.frustumCulled = md.hHeadSet.frustumCulled = false; grp.add(md.eHeadSet); grp.add(md.hHeadSet);
+    // S：截面上若干点，长度 ∝ |E|²（与 V² 相乘）
+    md.sPts = [];
+    XS.forEach(function(x){ [[0, 0], [D + RI + 0.2, 0], [-(D + RI + 0.2), 0]].forEach(function(p){
+      F(p[0], p[1], _e); var e2 = (_e[0]*_e[0] + _e[1]*_e[1])/(Eref*Eref);
+      md.sPts.push({x: x, pos: L3(x + 0.08, TH(x), p[0], p[1]), w: Math.min(1.4, e2)});
+    }); });
+    md.sSet = new ArrowSet(md.sPts.length, grp);
+    // 屏蔽层内壁电流 K_x ∝ −E_r（取 V>0 时的值）；角度取透过切口能看到的内壁
+    var PHK = [135, 195, 250, 300, 345].map(function(dg){ return dg*Math.PI/180; });
+    var krs = []; for (var a = 0; a < 360; a++){ var al = a*Math.PI/180; F(R*Math.cos(al)*0.999, R*Math.sin(al)*0.999, _e); krs.push(Math.abs(_e[0]*Math.cos(al) + _e[1]*Math.sin(al))); }
+    var Kref = Math.max.apply(null, krs);
+    function Kx(x, ph){ var al = ph - TH(x); F(R*Math.cos(al)*0.999, R*Math.sin(al)*0.999, _e); return -(_e[0]*Math.cos(al) + _e[1]*Math.sin(al))/Kref; }
+    md.kPts = [];
+    XH.forEach(function(x){ PHK.forEach(function(ph){ md.kPts.push({x: x, pos: P(x, R - 0.04, ph), k: Kx(x, ph)}); }); });
+    md.kSet = new ArrowSet(md.kPts.length, grp);
+    // 导线电流：沿螺旋切线；差模 D+ 与 D− 反向，共模同向
+    md.iPts = [];
+    XH.forEach(function(x){ [[0, 1], [Math.PI, m === 'dm' ? -1 : 1]].forEach(function(wp){
+      var th = TH(x) + wp[0], c = new THREE.Vector3(x, D*Math.cos(th), D*Math.sin(th)), out = new THREE.Vector3(0, Math.cos(th), Math.sin(th));
+      var tg = new THREE.Vector3(1, -D*2*Math.PI/PITCH*Math.sin(th), D*2*Math.PI/PITCH*Math.cos(th)).normalize();
+      md.iPts.push({x: x, pos: c.addScaledVector(out, RI + 0.05), dir: tg, sgn: wp[1]});
+    }); });
+    md.iSet = new ArrowSet(md.iPts.length, grp);
+    // 电子：导线上（沿螺旋移动），屏蔽层两道切口各一排
+    md.eW = []; for (var xe = X0 + 0.2; xe < X1 - 0.1; xe += 0.35){ md.eW.push({x: xe, ph: 0, sgn: 1}); md.eW.push({x: xe, ph: Math.PI, sgn: m === 'dm' ? -1 : 1}); }
+    md.eS = []; for (xe = X0 + 0.2; xe < X1 - 0.1; xe += 0.35){ [0.03, PH0 - 0.03].forEach(function(ph){ md.eS.push({x: xe, ph: ph, k: Kx(xe, ph)}); }); }
+    md.elec = new THREE.InstancedMesh(new THREE.SphereGeometry(0.036, 12, 8), new THREE.MeshBasicMaterial({color: 0xf0f6fc}), md.eW.length + md.eS.length);
+    md.elec.frustumCulled = false; grp.add(md.elec);
+    return md;
+  }
+  var MODES = {dm: buildMode('dm'), cm: buildMode('cm')};
+
+  /* ---------- V(x,t) 曲线、A 标记、标签 ---------- */
+  var NV = 280, vy0 = rJk + 0.95, vAmp = 0.5;
+  var vGeo = new THREE.BufferGeometry(); vGeo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array((NV+1)*3), 3));
+  scene.add(new THREE.Line(vGeo, new THREE.LineBasicMaterial({color: 0xc9d1d9})));
+  var baseLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(X0, vy0, 0), new THREE.Vector3(X1, vy0, 0)]), new THREE.LineDashedMaterial({color: 0x5b6470, dashSize: 0.15, gapSize: 0.12}));
+  baseLine.computeLineDistances(); scene.add(baseLine);
+  scene.add(new THREE.Mesh(new THREE.TorusGeometry(rJk + 0.04, 0.02, 8, 120).rotateY(Math.PI/2), new THREE.MeshBasicMaterial({color: 0xe6edf3})));
+  var guide = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, rJk + 0.05, 0), new THREE.Vector3(0, vy0 + vAmp + 0.15, 0)]), new THREE.LineDashedMaterial({color: 0x8b949e, dashSize: 0.1, gapSize: 0.08}));
+  guide.computeLineDistances(); scene.add(guide);
+
+  function label(text, color, h, pos, anchor){
+    var c = document.createElement('canvas'), x = c.getContext('2d'), fs = 64, font = '600 ' + fs + 'px -apple-system,"PingFang SC","Microsoft YaHei",sans-serif';
+    x.font = font; c.width = Math.ceil(x.measureText(text).width) + 28; c.height = fs + 26;
+    x.font = font; x.fillStyle = 'rgba(13,17,23,0.72)'; x.fillRect(0, 0, c.width, c.height);
+    x.fillStyle = color; x.textBaseline = 'middle'; x.fillText(text, 14, c.height/2 + 2);
+    var t = new THREE.CanvasTexture(c); t.encoding = THREE.sRGBEncoding; t.anisotropy = 4;
+    var sp = new THREE.Sprite(new THREE.SpriteMaterial({map: t, depthTest: false, transparent: true}));
+    sp.center.set(anchor ? 0 : 0.5, 0.5); sp.scale.set(h*c.width/c.height, h, 1); sp.position.copy(pos); sp.renderOrder = 10; scene.add(sp);
+    if (anchor){
+      var ln = new THREE.Line(new THREE.BufferGeometry().setFromPoints([anchor, pos.clone().add(new THREE.Vector3(-0.05, 0, 0))]), new THREE.LineBasicMaterial({color: 0x6e7681, depthTest: false}));
+      ln.renderOrder = 9; scene.add(ln);
+    }
+  }
+  var LX = X1 + 1.0, LZ = 0.5, thE = TH(X1);
+  label('D+', '#7fb2ee', 0.34, new THREE.Vector3(LX, 0.95, LZ), new THREE.Vector3(X1 + 0.01, D*Math.cos(thE) + 0.1, D*Math.sin(thE) + 0.12));
+  label('D−', '#f0a58c', 0.34, new THREE.Vector3(LX, 0.25, LZ), new THREE.Vector3(X1 + 0.01, -D*Math.cos(thE) + 0.1, -D*Math.sin(thE) + 0.12));
+  label('屏蔽层（编织）', '#c3c8cf', 0.34, new THREE.Vector3(LX, -0.6, LZ), P(X1, (R + rSh)/2, 2.45));
+  label('外护套', '#8b98a8', 0.34, new THREE.Vector3(LX, -1.35, LZ), P(X1, (rSh + rJk)/2, 2.2));
+  label('A', '#e6edf3', 0.4, new THREE.Vector3(0, vy0 + vAmp + 0.38, 0));
+  label('V(x,t)', '#c9d1d9', 0.34, new THREE.Vector3(X0 - 0.75, vy0, 0));
+  label('传播方向 →', '#ff9b70', 0.34, new THREE.Vector3(X1 - 1.6, vy0 + vAmp + 0.38, 0));
+
+  /* ---------- 文案 ---------- */
+  var TXT = {
+    dm: {h: '屏蔽双绞线中的差模行波：回路在两根线之间闭合',
+         p: 'D+ 去、D− 回，每隔 λ/2 方向反一次，整个图案沿 +x 推进；电子只在原地振荡<br>场主要被约束在两线之间；屏蔽层内壁只有感应电流——局部有、总和为零',
+         sh: '屏蔽层内壁感应电流（净值为零）', vk: 'A 处差分电压 Vd', ik: 'A 处电流（D+ / D−）'},
+    cm: {h: '屏蔽双绞线中的共模行波：屏蔽层成了回流路径',
+         p: 'D+、D− 同向流动，电流经屏蔽层内壁返回；电场从两根线指向屏蔽层<br>两线中点场强为零；共模电流正是屏蔽端接与 EMI 问题的源头',
+         sh: '屏蔽层内壁回流', vk: 'A 处共模电压 Vc', ik: 'A 处电流（线对 / 屏蔽）'}
+  };
+  var elH = document.getElementById('t-h'), elP = document.getElementById('t-p'), elSh = document.getElementById('lg-shield'), elVk = document.getElementById('r-vk'), elIk = document.getElementById('r-ik');
+  var bDm = document.getElementById('m-dm'), bCm = document.getElementById('m-cm');
+  function setMode(m){
+    mode = m; MODES.dm.grp.visible = m === 'dm'; MODES.cm.grp.visible = m === 'cm';
+    elH.textContent = TXT[m].h; elP.innerHTML = TXT[m].p; elSh.textContent = TXT[m].sh; elVk.textContent = TXT[m].vk; elIk.textContent = TXT[m].ik;
+    bDm.classList.toggle('on', m === 'dm'); bCm.classList.toggle('on', m === 'cm');
+  }
+  setMode(mode);
+
+  /* ---------- 每帧更新 ---------- */
+  var rPh = document.getElementById('r-ph'), rV = document.getElementById('r-v'), rI = document.getElementById('r-i'), rS = document.getElementById('r-s');
+  var dirX = new THREE.Vector3(1, 0, 0), dirNX = new THREE.Vector3(-1, 0, 0), tA = new THREE.Vector3(), tD = new THREE.Vector3();
+  var E_AMP = 0.13;
+
+  function update(t){
+    var md = MODES[mode], i, v, amp;
+    md.slices.forEach(function(sl){
+      v = V(Math.min(sl.x, X1), t); amp = Math.abs(v);
+      sl.obj.visible = amp >= MIN;
+      sl.mesh.userData.uThick.value = (sl.isE ? E_BASE : H_BASE)*amp*(sl.end ? 1.5 : 1);
+      sl.mesh.color.copy(fade(sl.isE ? C_E : C_H, amp));
+    });
+    [[md.eHeads, md.eHeadSet, C_E, E_BASE], [md.hHeads, md.hHeadSet, C_H, H_BASE]].forEach(function(hs){
+      hs[0].forEach(function(hd, j){
+        v = V(Math.min(hd.x, X1), t); amp = Math.abs(v);
+        if (amp < MIN){ _m.makeScale(0, 0, 0); hs[1].setMatrixAt(j, _m); return; }
+        tD.copy(hd.dir); if (v < 0) tD.negate();
+        var rr = Math.max(0.045, 2.6*hs[3]*hd.w*amp + 0.02), hh = rr*2.6;
+        _q.setFromUnitVectors(UP, tD); tA.copy(hd.pos).addScaledVector(tD, -hh/2); _s.set(rr, hh, rr); _m.compose(tA, _q, _s);
+        hs[1].setMatrixAt(j, _m); hs[1].setColorAt(j, fade(hs[2], amp));
+      });
+      hs[1].instanceMatrix.needsUpdate = true; if (hs[1].instanceColor) hs[1].instanceColor.needsUpdate = true;
+    });
+    md.sPts.forEach(function(sp, j){
+      v = V(sp.x, t); var len = 0.6*sp.w*v*v;
+      if (len < 0.04){ md.sSet.hide(j); return; }
+      md.sSet.set(j, sp.pos, dirX, len, 0.032, fade(C_S, Math.min(1, sp.w*v*v)));
+    }); md.sSet.done();
+    md.kPts.forEach(function(kp, j){
+      v = V(kp.x, t); var K = kp.k*v, len = 0.5*Math.abs(K);
+      if (len < 0.04){ md.kSet.hide(j); return; }
+      tA.copy(kp.pos).addScaledVector(K > 0 ? dirX : dirNX, -len/2);
+      md.kSet.set(j, tA, K > 0 ? dirX : dirNX, len, 0.026, fade(C_K, Math.abs(K)));
+    }); md.kSet.done();
+    md.iPts.forEach(function(ip, j){
+      v = V(ip.x, t); amp = Math.abs(v);
+      if (amp < MIN){ md.iSet.hide(j); return; }
+      var len = 0.6*amp; tD.copy(ip.dir); if (ip.sgn*v < 0) tD.negate();
+      tA.copy(ip.pos).addScaledVector(tD, -len/2);
+      md.iSet.set(j, tA, tD, len, 0.036, fade(C_I, amp));
+    }); md.iSet.done();
+    // 电子：速度 ∝ −I，位移 ξ = −sgn·A·sin(ωt−kx)；导线电子沿螺旋走，屏蔽层电子沿 x
+    var n = 0;
+    md.eW.forEach(function(e){
+      var xi = e.x - e.sgn*E_AMP*Math.sin(w*t - k*e.x), th = TH(xi) + e.ph;
+      _m.makeTranslation(xi, (D + RW + 0.02)*Math.cos(th), (D + RW + 0.02)*Math.sin(th)); md.elec.setMatrixAt(n++, _m);
+    });
+    md.eS.forEach(function(e){
+      var xi = e.x - e.k*E_AMP*Math.sin(w*t - k*e.x), r = (R + rSh)/2;
+      _m.makeTranslation(xi, r*Math.cos(e.ph), r*Math.sin(e.ph)); md.elec.setMatrixAt(n++, _m);
+    });
+    md.elec.instanceMatrix.needsUpdate = true;
+    // V(x,t) 曲线
+    var pa = vGeo.attributes.position.array;
+    for (i = 0; i <= NV; i++){ var xq = X0 + L*i/NV; pa[3*i] = xq; pa[3*i+1] = vy0 + vAmp*V(xq, t); pa[3*i+2] = 0; }
+    vGeo.attributes.position.needsUpdate = true;
+    // 读数（A：x = 0）
+    var vA = V(0, t), deg = (((t/PERIOD)*360) % 360 + 360) % 360, z = Math.abs(vA) < MIN;
+    rPh.textContent = Math.round(deg) + '°';
+    rV.textContent = Math.abs(vA) < 0.005 ? '0.00' : (vA > 0 ? '+' : '−') + Math.abs(vA).toFixed(2);
+    rV.style.color = z ? '#8b949e' : (vA > 0 ? '#8f86ff' : '#ff6b6b');
+    rI.textContent = z ? '≈ 0' : (mode === 'dm' ? (vA > 0 ? '→ / ←' : '← / →') : (vA > 0 ? '→→ / ←' : '←← / →'));
+    rS.textContent = '→ ' + (vA*vA).toFixed(2);
+  }
+
+  function resize(){
+    var W = window.innerWidth, H = window.innerHeight;
+    renderer.setSize(W, H, false); camera.aspect = W/H; camera.fov = W/H < 1.2 ? 52 : 36; camera.updateProjectionMatrix();
+  }
+  window.addEventListener('resize', resize); resize();
+
+  /* ---------- 交互 / 录制 ---------- */
+  var t = 0, playing = true, last = performance.now(), swing = 0;
+  var playBtn = document.getElementById('play'), phIn = document.getElementById('ph'), orbit = document.getElementById('orbit');
+  playBtn.onclick = function(){ playing = !playing; playBtn.textContent = playing ? '⏸ 暂停' : '▶ 播放'; };
+  phIn.oninput = function(){ playing = false; playBtn.textContent = '▶ 播放'; t = (+phIn.value/360)*PERIOD; };
+  bDm.onclick = function(){ setMode('dm'); }; bCm.onclick = function(){ setMode('cm'); };
+  var rw = document.getElementById('rw');
+  document.getElementById('reward').onclick = function(){ rw.hidden = false; };
+  document.getElementById('rw-close').onclick = function(){ rw.hidden = true; };
+  rw.onclick = function(e){ if (e.target === rw) rw.hidden = true; };
+  window.addEventListener('keydown', function(e){ if (e.key === 'Escape') rw.hidden = true; });
+  if (controls) controls.addEventListener('start', function(){ orbit.checked = false; });
+
+  function swingCam(tt){ var u = 2*Math.PI*tt/8; camAt(CAM_AZ + 0.22*Math.sin(u), CAM_EL + 0.05*Math.sin(2*u)); }
+  if (REC){
+    window.__rec = {duration: 8, frame: function(tt){ swingCam(tt); update(tt); renderer.render(scene, camera); }};
+    window.__rec.frame(0);
+  } else {
+    (function loop(now){
+      var dt = Math.max(0, Math.min(0.05, (now - last)/1000)); last = now;
+      if (playing){ t += dt; phIn.value = Math.round(((t/PERIOD)*360) % 360); }
+      if (orbit.checked){ swing += dt; swingCam(swing); controls.target.copy(TARGET); } else controls.update();
+      update(t); renderer.render(scene, camera);
+      requestAnimationFrame(loop);
+    })(last);
+  }
+})();
+</script>
+</body>
+</html>
